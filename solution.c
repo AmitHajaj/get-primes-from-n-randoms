@@ -1,11 +1,16 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <pthread.h>
 #include <math.h>
 #include <unistd.h>
 #include <sys/sysinfo.h>
 #include <sys/time.h>
-
+/**
+ * this file generate random numbers based on a user input.
+ * it return the number of primes it generated and the sum of them.
+ * The primality test i used is Rabin Miller primality test.
+*/
 
 pthread_mutex_t mutex;
 long sum = 0;
@@ -13,53 +18,95 @@ long primeCounter = 0;
 long *randomNumbers;
 long size;
 
-/**
- * From number theory we can say that number is a prime if it is equivilent
- * to 1 or 5 in mod 6.
- * Now, in our isPrime function we will check first if number is equiv to 1 or 5 in mod 6,
- * if so we will keep checking, but only untill sqrt(n) because it is knowm from sieve of Erastosenes.
- * Else we return no.
- *
- */
-void* isPrime(int num){
-    if(num == 2 || num == 3){
-        pthread_mutex_lock(&mutex);
-        sum += num;
-        primeCounter++;
-        pthread_mutex_unlock(&mutex);
-    }
-    if(num%6 == 1 || num%6 == 5){
-        //run from 2 to sqrt(num)
-        int i;
-        int root = (int)sqrt((double)num);
-        for(i=2; i<=root; i++){
-            //Check fif divisible.
-            if(num%i == 0){
-                return 0;
-            }
+long witness(long a, long b, long mod)
+{
+    long x = 0,y = a % mod;
+
+    while (b > 0)
+    {
+        if (b % 2 == 1)
+        {    
+            x = (x + y) % mod;
         }
-        pthread_mutex_lock(&mutex);
-        sum += num;
-        primeCounter++;
-//        printf("Prime %ld: %d", primeCounter, num);
-        pthread_mutex_unlock(&mutex);
-        return 0;
+        y = (y * 2) % mod;
+        b /= 2;
     }
-    else{
-        return 0;
-    }
+    return x % mod;
 }
 
+/* 
+ * modular exponentiatiol
+ * Compute the base^expo % mod
+ */
+
+long long modpow(long base, long exponent, long mod)
+{
+    long x = 1;
+    long y = base;
+
+    while (exponent > 0)
+    {
+        if (exponent % 2 == 1){
+            x = (x * y) % mod;
+        }
+        y = (y * y) % mod;
+
+        exponent = exponent / 2;
+    }
+    return x % mod;
+}
+/*
+ * Rabin-Miller Primality test. 
+ */
+
+void* isprime(long numToCheck,int iteration)
+{
+    int i;
+    long s;
+    if (numToCheck < 2)
+    {
+        return 0;
+    }
+
+    if (numToCheck != 2 && numToCheck % 2==0)
+    {
+        return 0;
+    }
+    s = numToCheck - 1;
+    while (s % 2 == 0)
+    {
+        s /= 2;
+    }
+
+    for (i = 0; i < iteration; i++)
+    {
+        long a = rand() % (numToCheck - 1) + 1, temp = s;
+        long mod = modpow(a, temp, numToCheck);
+        while (temp != numToCheck - 1 && mod != 1 && mod != numToCheck - 1)
+        {
+            mod = witness(mod, mod, numToCheck);
+            temp *= 2;
+        }
+
+        if (mod != numToCheck - 1 && temp % 2 == 0)
+        {
+            return 0;
+        }
+    }
+    pthread_mutex_lock(&mutex);
+    sum += numToCheck;
+    primeCounter++;
+    pthread_mutex_unlock(&mutex);
+    return 0;
+}
 //function that checks if a given set of numbers are primes.
 void* target(void* args){
-//    struct threadArgsBuffer* buff = (struct threadArgsBuffer*)args;
     long* arr = (long*)args;
-//    int size = buff->limit;
 
     //check the given array section for primes.
     int i;
     for(i=0; i<size || arr[i] == -1; i++){
-        isPrime(arr[i]);
+        isprime(arr[i], 5);
     }
     return 0;
 }
@@ -82,12 +129,11 @@ int main(int argc, char *argv[])
     //Check how many cores available.
     long numOfThread = get_nprocs_conf();
 
+
     //init random generator
-    int random = rand();
+    int random;
     srand(randomPivot);
 
-    // start timer
-    gettimeofday(&t1, NULL);
     //generate random numbers and put them in array.
 
     int cnt =0;
@@ -96,7 +142,6 @@ int main(int argc, char *argv[])
         randomNumbers[i] = random;
         cnt++;
     }
-    printf("Created numbers: %d\n", cnt);
 
     //Split the arr evenly between threads.
     size = (long)(numOfRandomNumbers/numOfThread);
@@ -122,11 +167,8 @@ int main(int argc, char *argv[])
         }
     }
 
-    gettimeofday(&t2, NULL);
-    double time_spent = (double)(t2.tv_sec -t1.tv_sec);
     //keep the out format as this!!
     printf("%ld,%ld\n",sum,primeCounter);
-    printf("time spent: %lf\n", time_spent);
 
     exit(0);
 }
